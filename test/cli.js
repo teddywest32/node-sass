@@ -5,13 +5,13 @@ var assert = require('assert'),
     glob = require('glob'),
     rimraf = require('rimraf'),
     stream = require('stream'),
-    spawn = require('cross-spawn'),
+    spawn = require('cross-spawn-async'),
     cli = path.join(__dirname, '..', 'bin', 'node-sass'),
     fixture = path.join.bind(null, __dirname, 'fixtures'),
     LIBSASS_VERSION = null;
 
 describe('cli', function() {
-  
+
   before(function(done) {
       var bin = spawn(cli, ['-v']);
       bin.stdout.setEncoding('utf8');
@@ -480,7 +480,7 @@ describe('cli', function() {
           '--source-map-embed',
           '--source-map', 'true'
         ]);
-        
+
         bin.stdout.on('data', function(data) {
             result += data;
         });

@@ -2,6 +2,9 @@
   branches:
     only:
       - release
+      - /v\d\.\d\.\d/
+    except:
+      - master
 
   os: Visual Studio 2013
 
@@ -39,6 +42,7 @@
       - nodejs_version: 3
       - nodejs_version: 4
       - nodejs_version: 5
+      - nodejs_version: 6
 
   install:
     - ps: Install-Product node $env:nodejs_version $env:platform
@@ -47,7 +51,9 @@
     - git submodule update --init --recursive
     - npm install --msvs_version=2013
 
-  test_script: npm test
+  test_script:
+    - ps: set-location -path c:\projects\node_modules\node-sass
+    - npm test
 
   before_deploy:
     # Save artifacts with full qualified names of binding.node and binding.pdb
@@ -70,10 +76,16 @@
       auth_token:
         secure: IZIifH990iABY3PQUtkRscTU/NOyYYwptGB6B1y2b618vpphV/2KD/4IWJzSAYAi
       on:
-        branch: release               # release from master branch only
         appveyor_repo_tag: true       # deploy on tag push only
 
 -
+  branches:
+    except:
+      - release
+      - /v\d\.\d\.\d/
+
+  skip_tags: true
+
   os: Visual Studio 2013
 
   configuration: testing
@@ -101,11 +113,9 @@
     matrix:
       - nodejs_version: 0.10
       - nodejs_version: 0.12
-      - nodejs_version: 1
-      - nodejs_version: 2
-      - nodejs_version: 3
       - nodejs_version: 4
       - nodejs_version: 5
+      - nodejs_version: 6
 
   install:
     - ps: Install-Product node $env:nodejs_version $env:platform
@@ -114,4 +124,6 @@
     - git submodule update --init --recursive
     - npm install --msvs_version=2013
 
-  test_script: npm test
+  test_script:
+    - ps: set-location -path c:\projects\node_modules\node-sass
+    - npm test

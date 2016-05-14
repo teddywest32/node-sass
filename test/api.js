@@ -2,7 +2,10 @@ var assert = require('assert'),
     fs = require('fs'),
     path = require('path'),
     read = fs.readFileSync,
-    sass = process.env.NODESASS_COV ? require('../lib-cov') : require('../lib'),
+    sassPath = process.env.NODESASS_COV
+      ? require.resolve('../lib-cov')
+      : require.resolve('../lib'),
+    sass = require(sassPath),
     fixture = path.join.bind(null, __dirname, 'fixtures'),
     resolveFixture = path.resolve.bind(null, __dirname, 'fixtures');
 
@@ -186,6 +189,40 @@ describe('api', function() {
   describe('.render(importer)', function() {
     var src = read(fixture('include-files/index.scss'), 'utf8');
 
+    it('should respect the order of chained imports when using custom importers and one file is custom imported and the other is not.', function(done) {
+      sass.render({
+        file: fixture('include-files/chained-imports-with-custom-importer.scss'),
+        importer: function(url, prev, done) {
+          // NOTE: to see that this test failure is only due to the stated
+          // issue do each of the following and see that the tests pass.
+          //
+          //   a) add `return sass.NULL;` as the first line in this function to
+          //      cause non-custom importers to always be used.
+          //   b) comment out the conditional below to force our custom
+          //      importer to always be used.
+          //
+          //  You will notice that the tests pass when either all native, or
+          //  all custom importers are used, but not when a native + custom
+          //  import chain is used.
+          if (url !== 'file-processed-by-loader') {
+            return sass.NULL;
+          }
+          done({
+            file: fixture('include-files/' + url + '.scss')
+          });
+        }
+      }, function(err, data) {
+        assert.equal(err, null);
+
+        assert.equal(
+          data.css.toString().trim(),
+          'body {\n  color: "red"; }'
+        );
+
+        done();
+      });
+    });
+
     it('should still call the next importer with the resolved prev path when the previous importer returned both a file and contents property - issue #1219', function(done) {
       sass.render({
         data: '@import "a";',
@@ -220,6 +257,26 @@ describe('api', function() {
         }
       }, function(error, result) {
         assert.equal(result.css.toString().trim(), 'div {\n  color: yellow; }\n\ndiv {\n  color: yellow; }');
+        done();
+      });
+    });
+
+    it('should should resolve imports depth first', function (done) {
+      var actualImportOrder = [];
+      var expectedImportOrder = [
+        'a', '_common', 'vars', 'struct', 'a1', 'common', 'vars', 'struct', 'b', 'b1'
+      ];
+      var expected = read(fixture('depth-first/expected.css'));
+
+      sass.render({
+        file: fixture('depth-first/index.scss'),
+        importer: function (url, prev, done) {
+          actualImportOrder.push(url);
+          done();
+        }
+      }, function(error, result) {
+        assert.equal(result.css.toString().trim(), expected);
+        assert.deepEqual(actualImportOrder, expectedImportOrder);
         done();
       });
     });
@@ -853,6 +910,28 @@ describe('api', function() {
         }
       }, function(error) {
         assert.ok(/unexpected error/.test(error.message));
+        done();
+      });
+    });
+
+    it('should call custom functions with correct context', function(done) {
+      function assertExpected(result) {
+        assert.equal(result.css.toString().trim(), 'div {\n  foo1: 1;\n  foo2: 2; }');
+      }
+      var options = {
+        data: 'div { foo1: foo(); foo2: foo(); }',
+        functions: {
+          // foo() is stateful and will persist an incrementing counter
+          'foo()': function() {
+            assert(this);
+            this.fooCounter = (this.fooCounter || 0) + 1;
+            return new sass.types.Number(this.fooCounter);
+          }
+        }
+      };
+
+      sass.render(options, function(error, result) {
+        assertExpected(result);
         done();
       });
     });
@@ -1592,6 +1671,25 @@ describe('api', function() {
 
       done();
     });
+
+    it('should call custom functions with correct context', function(done) {
+      function assertExpected(result) {
+        assert.equal(result.css.toString().trim(), 'div {\n  foo1: 1;\n  foo2: 2; }');
+      }
+      var options = {
+        data: 'div { foo1: foo(); foo2: foo(); }',
+        functions: {
+          // foo() is stateful and will persist an incrementing counter
+          'foo()': function() {
+            assert(this);
+            this.fooCounter = (this.fooCounter || 0) + 1;
+            return new sass.types.Number(this.fooCounter);
+          }
+        }
+      };
+      assertExpected(sass.renderSync(options));
+      done();
+    });
   });
 
   describe('.renderSync({stats: {}})', function() {
@@ -1680,6 +1778,146 @@ describe('api', function() {
       assert(info.indexOf('[C/C++]') > 0);
 
       done();
+    });
+  });
+
+  describe('binding', function() {
+    beforeEach(function() {
+      delete require.cache[sassPath];
+    });
+
+    afterEach(function() {
+      delete require.cache[sassPath];
+    });
+
+    describe('missing error', function() {
+      beforeEach(function() {
+        process.env.SASS_BINARY_NAME = [
+          (process.platform === 'win32' ? 'Linux' : 'Windows'), '-',
+          process.arch, '-',
+          process.versions.modules
+        ].join('');
+      });
+
+      afterEach(function() {
+        delete process.env.SASS_BINARY_NAME;
+      });
+
+      it('should be useful', function() {
+        assert.throws(
+          function() { require(sassPath); },
+          new RegExp('Missing binding.*?\\' + path.sep + 'vendor\\' + path.sep)
+        );
+      });
+
+      it('should list currently installed bindings', function() {
+        assert.throws(
+          function() { require(sassPath); },
+          function(err) {
+            var etx = require('../lib/extensions');
+
+            delete process.env.SASS_BINARY_NAME;
+
+            if ((err instanceof Error)) {
+              return err.message.indexOf(
+                etx.getHumanEnvironment(etx.getBinaryName())
+              ) !== -1;
+            }
+          }
+        );
+      });
+    });
+
+    describe('on unsupported environment', function() {
+      describe('with an unsupported architecture', function() {
+        var prevValue;
+
+        beforeEach(function() {
+          prevValue = process.arch;
+
+          Object.defineProperty(process, 'arch', {
+            get: function () { return 'foo'; }
+          });
+        });
+
+        afterEach(function() {
+          process.arch = prevValue;
+        });
+
+        it('should error', function() {
+          assert.throws(
+            function() { require(sassPath); },
+            'Node Sass does not yet support your current environment'
+          );
+        });
+
+        it('should inform the user the architecture is unsupported', function() {
+          assert.throws(
+            function() { require(sassPath); },
+            'Unsupported architecture (foo)'
+          );
+        });
+      });
+
+      describe('with an unsupported platform', function() {
+        var prevValue;
+
+        beforeEach(function() {
+          prevValue = process.platform;
+
+          Object.defineProperty(process, 'platform', {
+            get: function () { return 'bar'; }
+          });
+        });
+
+        afterEach(function() {
+          process.platform = prevValue;
+        });
+
+        it('should error', function() {
+          assert.throws(
+            function() { require(sassPath); },
+            'Node Sass does not yet support your current environment'
+          );
+        });
+
+        it('should inform the user the platform is unsupported', function() {
+          assert.throws(
+            function() { require(sassPath); },
+            'Unsupported platform (bar)'
+          );
+        });
+      });
+
+      describe('with an unsupported platform', function() {
+        var prevValue;
+
+        beforeEach(function() {
+          prevValue = process.versions.modules;
+
+          Object.defineProperty(process.versions, 'modules', {
+            get: function () { return 'baz'; }
+          });
+        });
+
+        afterEach(function() {
+          process.versions.modules = prevValue;
+        });
+
+        it('should error', function() {
+          assert.throws(
+            function() { require(sassPath); },
+            'Node Sass does not yet support your current environment'
+          );
+        });
+
+        it('should inform the user the runtime is unsupported', function() {
+          assert.throws(
+            function() { require(sassPath); },
+            'Unsupported runtime (baz)'
+          );
+        });
+      });
     });
   });
 });

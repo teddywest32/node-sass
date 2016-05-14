@@ -1,5 +1,7 @@
 # node-sass
 
+#### Supported Node.js versions 0.10, 0.12, 1, 2, 3, 4, 5, and 6.
+
 <table>
   <tr>
     <td>
@@ -104,7 +106,7 @@ Starting from v3.0.0:
   return new Error('nothing to do here');
   ```
 
-* importer can be an array of functions, which will be called by LibSass in the order of their occurrence in array. This helps user specify special importer for particular kind of path (filesystem, http). If an importer does not want to handle a particular path, it should return `sass.NULL`. See [functions section](#functions--v300) for more details on Sass types.
+* importer can be an array of functions, which will be called by LibSass in the order of their occurrence in array. This helps user specify special importer for particular kind of path (filesystem, http). If an importer does not want to handle a particular path, it should return `null`. See [functions section](#functions--v300) for more details on Sass types.
 
 ### functions (>= v3.0.0) - _experimental_
 
